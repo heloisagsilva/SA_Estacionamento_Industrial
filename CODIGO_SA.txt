@@ -1,0 +1,123 @@
+CÓDIGO DO PROJETO ESTACIONAMENTO INTELIGENTE
+
+#include <Servo.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Pinos do sistema
+const int pinoLDR = A0;
+const int pinoTrig = 8;
+const int pinoEcho = 9;
+
+Servo servoPortao;
+
+// Variáveis de controle
+bool portaoAberto = false;
+unsigned long tempoAbertura = 0;
+const int tempoParaFechar = 5000;
+
+int limiteCorte = 300;
+
+int medirDistancia() {
+  digitalWrite(pinoTrig, LOW);
+  delayMicroseconds(2);
+  digitalWrite(pinoTrig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(pinoTrig, LOW);
+
+  long duracao = pulseIn(pinoEcho, HIGH, 30000);
+  int distancia = duracao * 0.034 / 2;
+  return distancia;
+}
+
+void moverPortao(int anguloInicial, int anguloFinal) {
+  if (anguloInicial < anguloFinal) {
+    for (int pos = anguloInicial; pos <= anguloFinal; pos++) {
+      servoPortao.write(pos);
+      delay(10);
+    }
+  } else {
+    for (int pos = anguloInicial; pos >= anguloFinal; pos--) {
+      servoPortao.write(pos);
+      delay(10);
+    }
+  }
+}
+
+void atualizarLCD() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Portao:");
+
+  lcd.setCursor(0, 1);
+  if (portaoAberto) {
+    lcd.print("ABERTO!");
+  } else {
+    lcd.print("FECHADO!");
+  }
+}
+
+void setup() {
+  pinMode(pinoLDR, INPUT);
+  pinMode(pinoTrig, OUTPUT);
+  pinMode(pinoEcho, INPUT);
+
+  servoPortao.attach(3);
+  servoPortao.write(0);
+
+  Serial.begin(9600);
+
+  lcd.init();
+  lcd.backlight();
+  atualizarLCD();
+
+  Serial.println("Sistema com LDR + Laser iniciado.");
+}
+
+void loop() {
+
+  int valorLDR = analogRead(pinoLDR);
+
+  Serial.print("LDR: ");
+  Serial.println(valorLDR);
+
+  // =============================
+  // LASER CORTADO → ABRE PORTÃO
+  // =============================
+  if (valorLDR < limiteCorte && !portaoAberto) {
+    Serial.println("Laser cortado! Abrindo portao...");
+    moverPortao(0, 90);
+    portaoAberto = true;
+    tempoAbertura = millis();
+    atualizarLCD();
+  }
+
+  // =============================
+  // PORTÃO ABERTO → VERIFICA ULTRASSÔNICO
+  // =============================
+  if (portaoAberto) {
+
+    int distancia = medirDistancia();
+
+    Serial.print("Distancia: ");
+    Serial.println(distancia);
+
+    // Se presença detectada → mantém aberto
+    if (distancia <= 15 && distancia > 0) {
+      Serial.println("Presenca detectada! Mantendo portao aberto.");
+      tempoAbertura = millis(); // reinicia o tempo
+    }
+
+    // SE NÃO houver presença e passou o tempo → fecha
+    else if (millis() - tempoAbertura >= tempoParaFechar) {
+      Serial.println("Nenhuma presenca. Fechando portao...");
+      moverPortao(90, 0);
+      portaoAberto = false;
+      atualizarLCD();
+    }
+  }
+
+  delay(100);
+}
